@@ -1,0 +1,118 @@
+                                           1. Copy Data from Database to CSV, Parquet, and Avro File Formats
+
+
+
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+import fastavro
+
+# Database connection (example using SQLAlchemy for PostgreSQL)
+from sqlalchemy import create_engine
+
+# Database credentials
+db_user = 'username'
+db_password = 'password'
+db_host = 'localhost'
+db_port = '5432'
+db_name = 'database_name'
+table_name = 'table_name'
+
+# Create connection
+engine = create_engine(f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}')
+
+# Read data from database
+df = pd.read_sql_table(table_name, engine)
+
+# Write to CSV
+df.to_csv(f'{table_name}.csv', index=False)
+
+# Write to Parquet
+table = pa.Table.from_pandas(df)
+pq.write_table(table, f'{table_name}.parquet')
+
+# Write to Avro
+avro_schema = {
+    "type": "record",
+    "name": "table_name",
+    "fields": [{"name": col, "type": "string"} for col in df.columns]
+}
+
+with open(f'{table_name}.avro', 'wb') as f:
+    writer = fastavro.writer(f, avro_schema, df.to_dict(orient='records'))
+
+
+
+
+
+                                        2. Configure Schedule Trigger, Event Triggers to Automate the Pipeline Process
+
+
+
+
+from airflow import DAG
+from airflow.operators.python_operator import PythonOperator
+from datetime import datetime, timedelta
+
+default_args = {
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'start_date': datetime(2023, 1, 1),
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+dag = DAG('data_pipeline', default_args=default_args, schedule_interval='@daily')
+
+def copy_data():
+    # Your data copying logic here
+    pass
+
+copy_task = PythonOperator(
+    task_id='copy_data',
+    python_callable=copy_data,
+    dag=dag
+)
+
+
+
+                                          3. Copy All Tables from One Database to Another
+
+
+
+
+from sqlalchemy import MetaData
+from sqlalchemy.schema import Table
+
+# Source and target database connections
+source_engine = create_engine(f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}')
+target_engine = create_engine(f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}_target')
+
+metadata = MetaData()
+metadata.reflect(bind=source_engine)
+
+for table_name in metadata.tables.keys():
+    source_table = Table(table_name, metadata, autoload_with=source_engine)
+    data = pd.read_sql_table(table_name, source_engine)
+    data.to_sql(table_name, target_engine, if_exists='replace', index=False)
+
+
+
+
+
+                                         4. Copy Selective Tables with Selective Columns from One Database to Another
+
+
+
+# Define which tables and columns to copy
+tables_to_copy = {
+    'table1': ['column1', 'column2'],
+    'table2': ['column3', 'column4'],
+}
+
+for table_name, columns in tables_to_copy.items():
+    source_table = Table(table_name, metadata, autoload_with=source_engine)
+    data = pd.read_sql_table(table_name, source_engine, columns=columns)
+    data.to_sql(table_name, target_engine, if_exists='replace', index=False)
